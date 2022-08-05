@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2012-2022  Free Software Foundation, Inc.
 
-;; Author: Peter Münster <pmrb@free.fr>
+;; Author: Peter Münster <pm@a16n.net>
 ;; Keywords: notification, todo-list, alarm, reminder, pop-up, calendar
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "25.1"))
@@ -43,11 +43,11 @@
 ;;
 ;; (org-notify-add 'appt
 ;;                 '(:time "-1s" :period "20s" :duration 10
-;;                   :actions (-message -ding))
+;;                   :actions (message ding))
 ;;                 '(:time "15m" :period "2m" :duration 100
-;;                   :actions -notify)
-;;                 '(:time "2h" :period "5m" :actions -message)
-;;                 '(:time "3d" :actions -email))
+;;                   :actions notify)
+;;                 '(:time "2h" :period "5m" :actions message)
+;;                 '(:time "3d" :actions email))
 ;;
 ;; This means for todo-items with `notify' property set to `appt': 3 days
 ;; before deadline, send a reminder-email, 2 hours before deadline, start to
@@ -196,12 +196,11 @@ forgotten tasks."
                           (prm :audible)
 			org-notify-audible)
                       (ding))
-                  (unless (listp actions)
-                    (setq actions (list actions)))
+                  (setq actions (ensure-list actions))
 		  (cl-incf notification-cnt)
                   (dolist (action actions)
                     (funcall (if (fboundp action) action
-                               (intern (concat "org-notify-action"
+                               (intern (concat "org-notify-action-"
                                                (symbol-name action))))
 			     plist))
 		  (when (>= notification-cnt org-notify-max-notifications-per-run)
@@ -412,7 +411,7 @@ terminal an Emacs window."
     (org-notify-action-window plist)))
 
 ;;; Provide a minimal default setup.
-(org-notify-add 'default '(:time "1h" :actions -notify/window
+(org-notify-add 'default '(:time "1h" :actions notify/window
 				 :period "2m" :duration 60))
 
 (provide 'org-notify)
