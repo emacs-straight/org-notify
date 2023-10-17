@@ -1,10 +1,10 @@
 ;;; org-notify.el --- Notifications for Org-mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2022  Free Software Foundation, Inc.
+;; Copyright (C) 2012-2023  Free Software Foundation, Inc.
 
 ;; Author: Peter Münster <pm@a16n.net>
 ;; Keywords: notification, todo-list, alarm, reminder, pop-up, calendar
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/p-m/org-notify
 
@@ -62,9 +62,6 @@
 
 ;; - Make use of https://github.com/jwiegley/alert in
 ;;   org-notify-action-message.
-;; - Make it configurable, from where to get the timestamp
-;;   (DEADLINE and/or SCHEDULED). See also
-;;   https://lists.gnu.org/archive/html/emacs-orgmode/2016-06/msg00064.html
 ;; - Since character positions can be wrong, when you add something at the
 ;;   beginning of the org-file, use markers instead.
 ;; - Options for procrastination (e.g. "do it tomorrow") should be more
@@ -92,6 +89,11 @@
 (defcustom org-notify-max-notifications-per-run 3
   "Maximum number of notifications per run of `org-notify-process'."
   :type 'integer)
+
+(defcustom org-notify-timestamp-types '(:deadline)
+  "Types of timestamps to be notified of."
+  :type '(set (const :deadline)
+              (const :scheduled)))
 
 (defconst org-notify-actions
   '("show" "show" "done" "done" "hour" "one hour later" "day" "one day later"
@@ -127,29 +129,31 @@
          (cdr (assoc (match-string 3 str) conv))
          (if (= (length (match-string 1 str)) 1) -1 1)))))
 
-(defun org-notify-convert-deadline (orig)
-  "Convert original deadline from `org-element-parse-buffer' to
+(defun org-notify-convert-timestamp (orig)
+  "Convert original timestamp from `org-element-parse-buffer' to
 simple timestamp string."
   (if orig
       (replace-regexp-in-string "^<\\|>$" ""
-				(plist-get (plist-get orig 'timestamp)
-					   :raw-value))))
+                                (plist-get (plist-get orig 'timestamp)
+                                           :raw-value))))
 
-(defun org-notify-make-todo (heading &rest _ignored)
+(defun org-notify-make-todo (type elt &rest _ignored)
   "Create one todo item."
-  (cl-macrolet ((get (k) `(plist-get list ,k))
-             (pr (k v) `(setq result (plist-put result ,k ,v))))
-    (let* ((list (nth 1 heading))      (notify (or (get :NOTIFY) "default"))
-           (deadline (org-notify-convert-deadline (get :deadline)))
-	   (heading (get :raw-value))
+  (cl-macrolet ((get (k) `(org-element-property ,k elt))
+                (pr (k v) `(setq result (plist-put result ,k ,v))))
+    (let* ((notify    (or (get :NOTIFY) "default"))
+           (timestamp (org-notify-convert-timestamp (get type)))
+           (heading   (get :raw-value))
            result)
-      (when (and (eq (get :todo-type) 'todo) heading deadline)
+      (when (and (eq (get :todo-type) 'todo) heading timestamp)
         (pr :heading heading)     (pr :notify (intern notify))
         (pr :begin (get :begin))
         (pr :file (nth org-notify-parse-file (org-agenda-files 'unrestricted)))
-        (pr :timestamp deadline)  (pr :uid (md5 (concat heading deadline)))
-        (pr :deadline (- (org-time-string-to-seconds deadline)
-                         (float-time))))
+        (pr :timestamp timestamp)
+        (pr :uid (md5 (concat heading timestamp (symbol-name type))))
+        (pr :deadline (- (org-time-string-to-seconds timestamp)
+                         (float-time)))
+        (pr :type type))
       result)))
 
 (defun org-notify-todo-list ()
@@ -158,14 +162,17 @@ simple timestamp string."
          (max (1- (length files))))
     (when files
       (setq org-notify-parse-file
-	    (if (or (not org-notify-parse-file) (>= org-notify-parse-file max))
-		0
-	      (1+ org-notify-parse-file)))
+            (if (or (not org-notify-parse-file) (>= org-notify-parse-file max))
+                0
+              (1+ org-notify-parse-file)))
       (save-excursion
-	(with-current-buffer (find-file-noselect
-			      (nth org-notify-parse-file files))
-	  (org-element-map (org-element-parse-buffer 'headline)
-	      'headline 'org-notify-make-todo))))))
+        (with-current-buffer (find-file-noselect
+                              (nth org-notify-parse-file files))
+          (let ((parse-tree (org-element-parse-buffer 'headline)))
+            (mapcan (lambda (type)
+                      (org-element-map parse-tree 'headline
+                        (apply-partially #'org-notify-make-todo type)))
+                    org-notify-timestamp-types)))))))
 
 (defun org-notify-maybe-too-late (diff period heading)
   "Print warning message, when notified significantly later than defined by
@@ -180,7 +187,7 @@ forgotten tasks."
   (let ((notification-cnt 0))
     (cl-macrolet ((prm (k) `(plist-get prms ,k))  (td (k) `(plist-get todo ,k)))
       (dolist (todo (org-notify-todo-list))
-	(let* ((deadline (td :deadline))  (heading (td :heading))
+        (let* ((deadline (td :deadline))  (heading (td :heading))
                (uid (td :uid))            (last-run-sym
                                            (intern (concat ":last-run-" uid))))
           (cl-dolist (prms (plist-get org-notify-map (td :notify)))
@@ -188,25 +195,26 @@ forgotten tasks."
               (let ((period (org-notify-string->seconds (prm :period)))
                     (last-run (prm last-run-sym))  (now (float-time))
                     (actions (prm :actions))       diff  plist)
-		(when (or (not last-run)
+                (when (or (not last-run)
                           (and period (< period (setq diff (- now last-run)))
                                (org-notify-maybe-too-late diff period heading)))
                   (setq prms (plist-put prms last-run-sym now)
-			plist (append todo prms))
+                        plist (append todo prms))
                   (if (if (plist-member prms :audible)
                           (prm :audible)
-			org-notify-audible)
+                        org-notify-audible)
                       (ding))
                   (setq actions (ensure-list actions))
-		  (cl-incf notification-cnt)
+                  (cl-incf notification-cnt)
                   (dolist (action actions)
                     (funcall (if (fboundp action) action
                                (intern (concat "org-notify-action"
                                                (symbol-name action))))
-			     plist))
-		  (when (>= notification-cnt org-notify-max-notifications-per-run)
-		    (cl-return-from org-notify-process))))
-	      (cl-return))))))))
+                             plist))
+                  (when (>= notification-cnt
+                            org-notify-max-notifications-per-run)
+                    (cl-return-from org-notify-process))))
+              (cl-return))))))))
 
 (defun org-notify-add (name &rest params)
   "Add a new notification type.
@@ -262,7 +270,10 @@ seconds.  The default value for SECS is 20."
 (defun org-notify-on-action (plist key)
   "User wants to see action."
   (let ((file (plist-get plist :file))
-        (begin (plist-get plist :begin)))
+        (begin (plist-get plist :begin))
+        (search-prefix (pcase (plist-get plist :type)
+                         (:deadline "DEADLINE")
+                         (:scheduled "SCHEDULED"))))
     (if (string-equal key "show")
         (progn
           (switch-to-buffer (find-file-noselect file))
@@ -270,7 +281,7 @@ seconds.  The default value for SECS is 20."
            (goto-char begin)
            (outline-show-entry))
           (goto-char begin)
-          (search-forward "DEADLINE: <")
+          (search-forward (concat search-prefix ": <"))
           (search-forward ":")
           (if (display-graphic-p)
               (x-focus-frame nil)))
@@ -278,7 +289,7 @@ seconds.  The default value for SECS is 20."
         (with-current-buffer (find-file-noselect file)
           (org-with-wide-buffer
            (goto-char begin)
-           (search-forward "DEADLINE: <")
+           (search-forward (concat search-prefix ": <"))
            (cond
             ((string-equal key "done")
              (let ((org-loop-over-headlines-in-active-region nil)) (org-todo)))
@@ -336,8 +347,8 @@ seconds.  The default value for SECS is 20."
   (compose-mail user-mail-address (concat "TODO: " (plist-get plist :heading)))
   (insert (org-notify-body-text plist))
   (funcall send-mail-function)
-  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (_) t)))
-    (kill-buffer)))
+  (set-visited-file-name nil)
+  (kill-buffer))
 
 (defun org-notify-select-highest-window ()
   "Select the highest window on the frame, that is not is not an
@@ -413,7 +424,7 @@ terminal an Emacs window."
 
 ;;; Provide a minimal default setup.
 (org-notify-add 'default '(:time "1h" :actions -notify/window
-				 :period "2m" :duration 60))
+                                 :period "2m" :duration 60))
 
 (provide 'org-notify)
 
