@@ -4,7 +4,7 @@
 
 ;; Author: Peter Münster <pm@a16n.net>
 ;; Keywords: notification, todo-list, alarm, reminder, pop-up, calendar
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/p-m/org-notify
 
@@ -62,11 +62,21 @@
 
 ;; - Make use of https://github.com/jwiegley/alert in
 ;;   org-notify-action-message.
-;; - Since character positions can be wrong, when you add something at the
-;;   beginning of the org-file, use markers instead.
 ;; - Options for procrastination (e.g. "do it tomorrow") should be more
 ;;   configurable.
 ;; - Add support for tags as in https://github.com/p-m/org-notify/issues/7.
+
+;;;; News:
+
+;;;;; Changes since 0.1.1:
+
+;; - Add support for turning off uncritical notifications.
+;; - Positions are saved in markers now.
+
+;;;;; Changes since 0.1.0:
+
+;; - Add support for SCHEDULED timestamps with new option
+;;   `org-notify-timestamp-types'.
 
 ;;; Code:
 
@@ -115,6 +125,19 @@
 (defvar org-notify-on-action-map nil
   "Mapping between on-action identifiers and parameter lists.")
 
+(defvar org-notify-only-critical nil
+  "Activate only critical notifications.")
+
+(defun org-notify-toggle-only-critical ()
+  "Toggle `org-notify-only-critical'."
+  (interactive)
+  (if org-notify-only-critical
+      (progn
+        (message "Turning on ALL notifications.")
+        (setq org-notify-only-critical nil))
+    (message "Turning on only CRITICAL notifications.")
+    (setq org-notify-only-critical t)))
+
 (defun org-notify-string->seconds (str)
   "Convert time string STR to number of seconds."
   (when str
@@ -147,7 +170,7 @@ simple timestamp string."
            result)
       (when (and (eq (get :todo-type) 'todo) heading timestamp)
         (pr :heading heading)     (pr :notify (intern notify))
-        (pr :begin (get :begin))
+        (pr :marker (set-marker (make-marker) (+ (get :begin) 4)))
         (pr :file (nth org-notify-parse-file (org-agenda-files 'unrestricted)))
         (pr :timestamp timestamp)
         (pr :uid (md5 (concat heading timestamp (symbol-name type))))
@@ -181,6 +204,11 @@ PERIOD."
       (message "Warning: notification for \"%s\" behind schedule!" heading))
   t)
 
+(defun org-notify-urgent (urgency)
+  "Check if the notification has high enough urgency."
+  (or (null org-notify-only-critical)
+      (equal urgency 'critical)))
+
 (cl-defun org-notify-process ()
   "Process the todo-list, and possibly notify user about upcoming or
 forgotten tasks."
@@ -195,9 +223,12 @@ forgotten tasks."
               (let ((period (org-notify-string->seconds (prm :period)))
                     (last-run (prm last-run-sym))  (now (float-time))
                     (actions (prm :actions))       diff  plist)
-                (when (or (not last-run)
-                          (and period (< period (setq diff (- now last-run)))
-                               (org-notify-maybe-too-late diff period heading)))
+                (when (and
+                       (org-notify-urgent (prm :urgency))
+                       (or (not last-run)
+                           (and period (< period (setq diff (- now last-run)))
+                                (org-notify-maybe-too-late
+                                 diff period heading))))
                   (setq prms (plist-put prms last-run-sym now)
                         plist (append todo prms))
                   (if (if (plist-member prms :audible)
@@ -270,7 +301,7 @@ seconds.  The default value for SECS is 20."
 (defun org-notify-on-action (plist key)
   "User wants to see action."
   (let ((file (plist-get plist :file))
-        (begin (plist-get plist :begin))
+        (begin (plist-get plist :marker))
         (search-prefix (pcase (plist-get plist :type)
                          (:deadline "DEADLINE")
                          (:scheduled "SCHEDULED"))))
