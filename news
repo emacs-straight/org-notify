@@ -1,0 +1,13 @@
+Changes since 0.1.2:
+
+- Make org-notify support macOS without DBus.
+
+Changes since 0.1.1:
+
+- Add support for turning off uncritical notifications.
+- Positions are saved in markers now.
+
+Changes since 0.1.0:
+
+- Add support for SCHEDULED timestamps with new option
+  `org-notify-timestamp-types'.

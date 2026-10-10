@@ -1,2 +1,2 @@
-;; Generated package description from org-notify.el  -*- no-byte-compile: t -*-
-(define-package "org-notify" "0.1.2.0.20251219.195448" "Notifications for Org-mode" '((emacs "25.1")) :commit "aacd0efd8cb7906b3c0893791016d2e7f82e11e0" :authors '(("Peter Münster" . "pm@a16n.net")) :maintainer '("Peter Münster" . "pm@a16n.net") :keywords '("notification" "todo-list" "alarm" "reminder" "pop-up" "calendar") :url "https://github.com/p-m/org-notify")
+;; Generated package description from org-notify.el  -*- no-byte-compile: t; lexical-binding:t -*-
+(define-package "org-notify" "0.1.3.0.20261009.0" "Notifications for Org-mode" '((emacs "25.1")) :commit "aeb9fa9032ba4e52fefa4f7ee9b22a10ce3a7075" :authors '(("Peter Münster" . "pm@a16n.net")) :maintainer '("Peter Münster" . "pm@a16n.net") :keywords '("notification" "todo-list" "alarm" "reminder" "pop-up" "calendar") :url "https://github.com/p-m/org-notify")

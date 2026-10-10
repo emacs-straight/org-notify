@@ -4,7 +4,7 @@
 
 ;; Author: Peter Münster <pm@a16n.net>
 ;; Keywords: notification, todo-list, alarm, reminder, pop-up, calendar
-;; Version: 0.1.2
+;; Version: 0.1.3
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/p-m/org-notify
 
@@ -68,6 +68,10 @@
 
 ;;;; News:
 
+;;;;; Changes since 0.1.2:
+
+;; - Make org-notify support macOS without DBus.
+
 ;;;;; Changes since 0.1.1:
 
 ;; - Add support for turning off uncritical notifications.
@@ -128,15 +132,14 @@
 (defvar org-notify-only-critical nil
   "Activate only critical notifications.")
 
-(defun org-notify-toggle-only-critical ()
-  "Toggle `org-notify-only-critical'."
+(cl-defun org-notify-toggle-only-critical (&optional (value 'toggle))
+  "Toggle or set `org-notify-only-critical'.
+If VALUE is omitted, toggle the variable.  If VALUE is t, only critical notifications are enabled.
+If VALUE is nil, all notifications are enabled."
   (interactive)
-  (if org-notify-only-critical
-      (progn
-        (message "Turning on ALL notifications.")
-        (setq org-notify-only-critical nil))
-    (message "Turning on only CRITICAL notifications.")
-    (setq org-notify-only-critical t)))
+  (setq org-notify-only-critical (if (eq value 'toggle) (not org-notify-only-critical) value))
+  (message (if org-notify-only-critical
+               "Turning on only CRITICAL notifications." "Turning on ALL notifications.")))
 
 (defun org-notify-string->seconds (str)
   "Convert time string STR to number of seconds."
@@ -435,16 +438,27 @@ org-notify window.  Mostly copied from `appt-select-lowest-window'."
 (defun org-notify-action-notify (plist)
   "Pop up a notification window."
   (require 'notifications)
-  (let* ((duration (plist-get plist :duration))
-         (id (notifications-notify
-              :title     (plist-get plist :heading)
-              :body      (org-notify-body-text plist)
-              :timeout   (if duration (* duration 1000))
-              :urgency   (plist-get plist :urgency)
-              :actions   org-notify-actions
-              :on-action 'org-notify-on-action-notify)))
-    (setq org-notify-on-action-map
-          (plist-put org-notify-on-action-map id plist))))
+  (cond ((and (featurep 'dbus) (boundp 'dbusbind))
+         (let* ((duration (plist-get plist :duration))
+                (id (notifications-notify
+                     :title     (plist-get plist :heading)
+                     :body      (org-notify-body-text plist)
+                     :timeout   (if duration (* duration 1000))
+                     :urgency   (plist-get plist :urgency)
+                     :actions   org-notify-actions
+                     :on-action 'org-notify-on-action-notify)))
+           (setq org-notify-on-action-map
+                 (plist-put org-notify-on-action-map id plist))))
+        ((fboundp 'ns-do-applescript)
+         (ns-do-applescript
+          (format "display notification \"%s\" with title \"%s\" sound name \"Frog\""
+                  (replace-regexp-in-string "\"" "#" (org-notify-body-text plist))
+                  (replace-regexp-in-string "\"" "#" (plist-get plist :heading))))
+         (when org-notify-audible
+           ;; TODO make audio speaking async. By default `ns-do-applescript' will block Emacs.
+           (ns-do-applescript
+            (format "say \"%s\""
+                    (replace-regexp-in-string "\"" "#" (plist-get plist :heading))))))))
 
 (defun org-notify-action-notify/window (plist)
   "For a graphics display, pop up a notification window, for a text
@@ -454,8 +468,7 @@ terminal an Emacs window."
     (org-notify-action-window plist)))
 
 ;;; Provide a minimal default setup.
-(org-notify-add 'default '(:time "1h" :actions -notify/window
-                                 :period "2m" :duration 60))
+(org-notify-add 'default '(:time "1h" :actions -notify/window :period "2m" :duration 60))
 
 (provide 'org-notify)
 
