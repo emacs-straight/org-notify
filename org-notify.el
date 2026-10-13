@@ -4,7 +4,7 @@
 
 ;; Author: Peter Münster <pm@a16n.net>
 ;; Keywords: notification, todo-list, alarm, reminder, pop-up, calendar
-;; Version: 0.1.3
+;; Version: 0.1.4
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/p-m/org-notify
 
@@ -67,6 +67,10 @@
 ;; - Add support for tags as in https://github.com/p-m/org-notify/issues/7.
 
 ;;;; News:
+
+;;;;; Changes since 0.1.3:
+
+;; - Bug-fix with checking for dbusbind.
 
 ;;;;; Changes since 0.1.2:
 
@@ -438,7 +442,7 @@ org-notify window.  Mostly copied from `appt-select-lowest-window'."
 (defun org-notify-action-notify (plist)
   "Pop up a notification window."
   (require 'notifications)
-  (cond ((and (featurep 'dbus) (boundp 'dbusbind))
+  (cond ((and (featurep 'dbus) (featurep 'dbusbind))
          (let* ((duration (plist-get plist :duration))
                 (id (notifications-notify
                      :title     (plist-get plist :heading)
